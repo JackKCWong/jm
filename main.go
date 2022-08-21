@@ -101,7 +101,7 @@ func requestAndSearch(url string, jmpath *jmespath.JMESPath) error {
 		return err
 	}
 
-	fmt.Printf("%s:  %v\n", resp.Request.URL.Host, res)
+	fmt.Printf("%s:  %v\n", resp.Request.URL, res)
 
 	return nil
 }
