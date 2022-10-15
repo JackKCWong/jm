@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -12,17 +13,19 @@ import (
 	"sync"
 
 	"github.com/jmespath/go-jmespath"
+	"golang.org/x/sync/semaphore"
 )
 
 func main() {
+	fConcurrency := flag.Int("c", 100, "number of concurrent requests, if the input are URLs.")
 	flag.Parse()
 
-	if err := runMain(os.Stdin, flag.Arg(0)); err != nil {
+	if err := runMain(os.Stdin, *fConcurrency, flag.Arg(0)); err != nil {
 		log.Println(err)
 	}
 }
 
-func runMain(input io.Reader, path string) error {
+func runMain(input io.Reader, concurrency int, path string) error {
 	jmpath, err := jmespath.Compile(path)
 	if err != nil {
 		return fmt.Errorf("invalid jmespath: %q", err)
@@ -37,7 +40,7 @@ func runMain(input io.Reader, path string) error {
 		if firstLine[:4] == "http" {
 			go func() {
 				defer wg.Done()
-				jsonFromRemote(lines, jmpath)
+				jsonFromRemote(lines, jmpath, concurrency)
 			}()
 		} else {
 			go func() {
@@ -60,14 +63,20 @@ func runMain(input io.Reader, path string) error {
 	return nil
 }
 
-func jsonFromRemote(urls chan string, jmpath *jmespath.JMESPath) {
+func jsonFromRemote(urls chan string, jmpath *jmespath.JMESPath, concurrency int) {
 	var wg sync.WaitGroup
+	sem := semaphore.NewWeighted(int64(concurrency))
 	lineno := -1
 	for url := range urls {
 		wg.Add(1)
 		lineno++
+		if err := sem.Acquire(context.TODO(), 1); err != nil {
+			log.Printf("err: %q", err)
+			return
+		}
 		go func(url string, lineno int) {
 			defer wg.Done()
+			defer sem.Release(1)
 			err := requestAndSearch(url, jmpath)
 			if err != nil {
 				log.Printf("line %d: %q", lineno, err)
