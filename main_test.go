@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,7 +21,7 @@ func TestJsonFromRemote(t *testing.T) {
 	defer server.Close()
 
 	// TODO: refactor
-	err := runMain(strings.NewReader(server.URL + "/json1\n" + server.URL + "/json2\n"), 2, "key1")
+	err := runMain(context.Background(), strings.NewReader(server.URL + "/json1\n" + server.URL + "/json2\n"), 2, "key1")
 	if err != nil {
 		t.Fatal(err)
 	}
