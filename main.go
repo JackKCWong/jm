@@ -101,7 +101,7 @@ func requestAndSearch(url string, jmpath *jmespath.JMESPath) error {
 		return err
 	}
 
-	fmt.Printf("%s:  %v\n", resp.Request.URL, res)
+	fmt.Printf("%s:  %s\n", resp.Request.URL, toJsonStr(res))
 
 	return nil
 }
@@ -122,6 +122,20 @@ func jsonFromStdin(jsons chan string, jmpath *jmespath.JMESPath) {
 			log.Printf("line %d: %q", lineno, err)
 		}
 
-		fmt.Printf("%d:  %v\n", lineno, res)
+		fmt.Printf("%d:  %v\n", lineno, toJsonStr(res))
 	}
+}
+
+func toJsonStr(v interface{}) string {
+	out := ""
+	if v != nil {
+		ret, err := json.Marshal(&v)
+		if err != nil {
+			out = err.Error()
+		} else {
+			out = string(ret)
+		}
+	}
+
+	return out
 }
