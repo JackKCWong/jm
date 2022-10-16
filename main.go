@@ -17,32 +17,20 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-func main() {
-	fConcurrency := flag.Int("c", 100, "number of concurrent requests, if the input are URLs.")
-	flag.Parse()
-
-	sigKill := make(chan os.Signal, 1)
-	signal.Notify(sigKill, os.Interrupt)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	go func() {
-		<-sigKill
-		cancel()
-	}()
-
-	if err := runMain(ctx, os.Stdin, *fConcurrency, flag.Arg(0)); err != nil {
-		log.Println(err)
-	}
+type app struct {
+	Concurrency int
+	Verbose     bool
+	Input       io.Reader
 }
 
-func runMain(ctx context.Context, input io.Reader, concurrency int, path string) error {
+func (app app) Run(ctx context.Context, args []string) error {
+	path := args[0]
 	jmpath, err := jmespath.Compile(path)
 	if err != nil {
 		return fmt.Errorf("invalid jmespath: %q", err)
 	}
 
-	scanner := bufio.NewScanner(input)
+	scanner := bufio.NewScanner(app.Input)
 	lines := make(chan string, 100)
 	var wg sync.WaitGroup
 	if scanner.Scan() {
@@ -51,12 +39,12 @@ func runMain(ctx context.Context, input io.Reader, concurrency int, path string)
 		if firstLine[:4] == "http" {
 			go func() {
 				defer wg.Done()
-				jsonFromRemote(ctx, lines, jmpath, concurrency)
+				app.jsonFromRemote(ctx, lines, jmpath)
 			}()
 		} else {
 			go func() {
 				defer wg.Done()
-				jsonFromStdin(lines, jmpath)
+				app.jsonFromStdin(lines, jmpath)
 			}()
 		}
 
@@ -74,9 +62,32 @@ func runMain(ctx context.Context, input io.Reader, concurrency int, path string)
 	return nil
 }
 
-func jsonFromRemote(ctx context.Context, urls chan string, jmpath *jmespath.JMESPath, concurrency int) {
+func main() {
+	var app app
+	flag.IntVar(&app.Concurrency, "c", 100, "number of concurrent requests, if the input are URLs.")
+	flag.BoolVar(&app.Verbose, "v", false, "verbose output")
+	flag.Parse()
+
+	sigKill := make(chan os.Signal, 1)
+	signal.Notify(sigKill, os.Interrupt)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		<-sigKill
+		cancel()
+	}()
+
+	app.Input = os.Stdin
+
+	if err := app.Run(ctx, flag.Args()); err != nil {
+		log.Println(err)
+	}
+}
+
+func (app app) jsonFromRemote(ctx context.Context, urls chan string, jmpath *jmespath.JMESPath) {
 	var wg sync.WaitGroup
-	sem := semaphore.NewWeighted(int64(concurrency))
+	sem := semaphore.NewWeighted(int64(app.Concurrency))
 	lineno := -1
 	for url := range urls {
 		wg.Add(1)
@@ -88,7 +99,7 @@ func jsonFromRemote(ctx context.Context, urls chan string, jmpath *jmespath.JMES
 		go func(url string, lineno int) {
 			defer wg.Done()
 			defer sem.Release(1)
-			err := requestAndSearch(ctx, url, jmpath)
+			err := app.requestAndSearch(ctx, url, jmpath)
 			if err != nil {
 				log.Printf("line %d: %q", lineno, err)
 			}
@@ -98,7 +109,7 @@ func jsonFromRemote(ctx context.Context, urls chan string, jmpath *jmespath.JMES
 	wg.Wait()
 }
 
-func requestAndSearch(ctx context.Context, url string, jmpath *jmespath.JMESPath) error {
+func (app app) requestAndSearch(ctx context.Context, url string, jmpath *jmespath.JMESPath) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -126,12 +137,16 @@ func requestAndSearch(ctx context.Context, url string, jmpath *jmespath.JMESPath
 		return err
 	}
 
-	fmt.Printf("%s:  %s\n", resp.Request.URL, toJsonStr(res))
+	if app.Verbose {
+		fmt.Printf("%s:\t%s\n", resp.Request.URL, toJsonStr(res))
+	} else {
+		fmt.Printf("%s\n", toJsonStr(res))
+	}
 
 	return nil
 }
 
-func jsonFromStdin(jsons chan string, jmpath *jmespath.JMESPath) {
+func (app app) jsonFromStdin(jsons chan string, jmpath *jmespath.JMESPath) {
 	lineno := -1
 	for line := range jsons {
 		lineno++
@@ -147,7 +162,11 @@ func jsonFromStdin(jsons chan string, jmpath *jmespath.JMESPath) {
 			log.Printf("line %d: %q", lineno, err)
 		}
 
-		fmt.Printf("%d:  %v\n", lineno, toJsonStr(res))
+		if app.Verbose {
+			fmt.Printf("%d:\t%v\n", lineno, toJsonStr(res))
+		} else {
+			fmt.Printf("%v\n", toJsonStr(res))
+		}
 	}
 }
 

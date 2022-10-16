@@ -20,8 +20,11 @@ func TestJsonFromRemote(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	// TODO: refactor
-	err := runMain(context.Background(), strings.NewReader(server.URL + "/json1\n" + server.URL + "/json2\n"), 2, "key1")
+	var app app
+	app.Input = strings.NewReader(server.URL + "/json1\n" + server.URL + "/json2\n")
+	app.Concurrency = 2
+
+	err := app.Run(context.Background(), []string{"key1"})
 	if err != nil {
 		t.Fatal(err)
 	}
