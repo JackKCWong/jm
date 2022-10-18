@@ -132,15 +132,17 @@ func (app app) requestAndSearch(ctx context.Context, url string, jmpath *jmespat
 		return err
 	}
 
-	res, err := jmpath.Search(obj)
+	res, err := search(obj, jmpath)
 	if err != nil {
 		return err
 	}
 
-	if app.Verbose {
-		fmt.Printf("%s:\t%s\n", resp.Request.URL, toJsonStr(res))
-	} else {
-		fmt.Printf("%s\n", toJsonStr(res))
+	for i := range res {
+		if app.Verbose {
+			fmt.Printf("%s:\t%s\n", resp.Request.URL, toJsonStr(res[i]))
+		} else {
+			fmt.Printf("%s\n", toJsonStr(res[i]))
+		}
 	}
 
 	return nil
@@ -157,17 +159,43 @@ func (app app) jsonFromStdin(jsons chan string, jmpath *jmespath.JMESPath) {
 			continue
 		}
 
-		res, err := jmpath.Search(obj)
+		res, err := search(obj, jmpath)
 		if err != nil {
 			log.Printf("line %d: %q", lineno, err)
+			return
 		}
 
-		if app.Verbose {
-			fmt.Printf("%d:\t%v\n", lineno, toJsonStr(res))
-		} else {
-			fmt.Printf("%v\n", toJsonStr(res))
+		for i := range res {
+			if app.Verbose {
+				fmt.Printf("%d:\t%v\n", lineno, toJsonStr(res[i]))
+			} else {
+				fmt.Printf("%v\n", toJsonStr(res[i]))
+			}
 		}
 	}
+}
+
+func search(obj interface{}, jmpath *jmespath.JMESPath) ([]interface{}, error) {
+	if objs, ok := obj.([]interface{}); ok {
+		var result []interface{}
+		for i := range objs {
+			res, err := jmpath.Search(objs[i])
+			if err != nil {
+				return nil, err
+			}
+
+			result = append(result, res)
+		}
+
+		return result, nil
+	}
+
+	res, err := jmpath.Search(obj)
+	if err != nil {
+		return nil, err
+	}
+
+	return []interface{}{res}, nil
 }
 
 func toJsonStr(v interface{}) string {
