@@ -68,6 +68,11 @@ func main() {
 	flag.BoolVar(&app.Verbose, "v", false, "verbose output")
 	flag.Parse()
 
+	if len(flag.Args()) == 0 {
+		fmt.Println("usage: jm path < input")
+		return
+	}
+
 	sigKill := make(chan os.Signal, 1)
 	signal.Notify(sigKill, os.Interrupt)
 	ctx, cancel := context.WithCancel(context.Background())
