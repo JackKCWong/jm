@@ -73,15 +73,8 @@ func main() {
 		return
 	}
 
-	sigKill := make(chan os.Signal, 1)
-	signal.Notify(sigKill, os.Interrupt)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
-
-	go func() {
-		<-sigKill
-		cancel()
-	}()
 
 	app.Input = os.Stdin
 
