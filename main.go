@@ -11,10 +11,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 
+	csp "github.com/JackKCWong/chansport"
 	"github.com/jmespath/go-jmespath"
-	"golang.org/x/sync/semaphore"
 )
 
 type app struct {
@@ -84,66 +85,53 @@ func main() {
 }
 
 func (app app) jsonFromRemote(ctx context.Context, urls chan string, jmpath *jmespath.JMESPath) {
-	var wg sync.WaitGroup
-	sem := semaphore.NewWeighted(int64(app.Concurrency))
-	lineno := -1
-	for url := range urls {
-		wg.Add(1)
-		lineno++
-		if err := sem.Acquire(ctx, 1); err != nil {
-			log.Printf("err: %q", err)
-			return
-		}
-		go func(url string, lineno int) {
-			defer wg.Done()
-			defer sem.Release(1)
-			err := app.requestAndSearch(ctx, url, jmpath)
-			if err != nil {
-				log.Printf("line %d: %q", lineno, err)
-			}
-		}(url, lineno)
-	}
+	res := csp.MapParallel(urls, func(url string) string {
+		return app.requestAndSearch(ctx, url, jmpath)
+	}, app.Concurrency)
 
-	wg.Wait()
+	for r := range res {
+		fmt.Print(r)
+	}
 }
 
-func (app app) requestAndSearch(ctx context.Context, url string, jmpath *jmespath.JMESPath) error {
+func (app app) requestAndSearch(ctx context.Context, url string, jmpath *jmespath.JMESPath) string {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return err
+		return fmt.Sprintf("%s - err: %q", url, err)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Sprintf("%s - err: %q", url, err)
 	}
 
 	obj := interface{}(nil)
 	data, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if err != nil {
-		return err
+		return fmt.Sprintf("%s - err: %q", url, err)
 	}
 
 	err = json.Unmarshal(data, &obj)
 	if err != nil {
-		return err
+		return fmt.Sprintf("%s - err: %q", url, err)
 	}
 
 	res, err := search(obj, jmpath)
 	if err != nil {
-		return err
+		return fmt.Sprintf("%s - err: %q", url, err)
 	}
 
+	var sb strings.Builder
 	for i := range res {
 		if app.Verbose {
-			fmt.Printf("%s:\t%s\n", resp.Request.URL, toJsonStr(res[i]))
+			sb.WriteString(fmt.Sprintf("%s:\t%s\n", resp.Request.URL, toJsonStr(res[i])))
 		} else {
-			fmt.Printf("%s\n", toJsonStr(res[i]))
+			sb.WriteString(fmt.Sprintf("%s\n", toJsonStr(res[i])))
 		}
 	}
 
-	return nil
+	return sb.String()
 }
 
 func (app app) jsonFromStdin(jsons chan string, jmpath *jmespath.JMESPath) {
